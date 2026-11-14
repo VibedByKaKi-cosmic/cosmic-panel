@@ -1860,7 +1860,13 @@ impl PanelSpace {
             }
         }
 
-        if self.config.expand_to_edges != config.expand_to_edges {
+        // Re-place every applet when an overflow option changes, so that an
+        // applet that just became pinned or forced moves right away.
+        if self.config.expand_to_edges != config.expand_to_edges
+            || self.config.overflow_applets != config.overflow_applets
+            || self.config.pinned_applets != config.pinned_applets
+            || self.config.always_overflow != config.always_overflow
+        {
             self.reset_overflow();
         }
 

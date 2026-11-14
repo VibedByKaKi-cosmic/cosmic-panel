@@ -468,6 +468,18 @@ pub struct CosmicPanelConfig {
     /// keep panel styling when windows are maximized
     #[serde(default)]
     pub keep_style_on_maximize: bool,
+    /// applets, by desktop file id, that are always placed in the overflow
+    /// section, even when the panel has room for them
+    #[serde(default)]
+    pub overflow_applets: Vec<String>,
+    /// applets, by desktop file id, that are never placed in the overflow
+    /// section. Takes precedence over `overflow_applets` and `always_overflow`.
+    #[serde(default)]
+    pub pinned_applets: Vec<String>,
+    /// place every applet in the overflow section, except `pinned_applets`,
+    /// even when the panel has room for them
+    #[serde(default)]
+    pub always_overflow: bool,
 }
 
 impl PartialEq for CosmicPanelConfig {
@@ -496,6 +508,9 @@ impl PartialEq for CosmicPanelConfig {
             && self.size_wings == other.size_wings
             && (self.opacity - other.opacity).abs() < 0.01
             && self.keep_style_on_maximize == other.keep_style_on_maximize
+            && self.overflow_applets == other.overflow_applets
+            && self.pinned_applets == other.pinned_applets
+            && self.always_overflow == other.always_overflow
     }
 }
 
@@ -528,6 +543,9 @@ impl Default for CosmicPanelConfig {
             autohover_delay_ms: Some(500),
             padding_overlap: 0.5,
             keep_style_on_maximize: false,
+            overflow_applets: Vec::new(),
+            pinned_applets: Vec::new(),
+            always_overflow: false,
         }
     }
 }
