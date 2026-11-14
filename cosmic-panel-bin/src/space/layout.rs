@@ -69,6 +69,7 @@ impl PanelSpace {
     pub(crate) fn layout_(&mut self) -> anyhow::Result<()> {
         self.needs_layout = false;
         self.remap_attempts = self.remap_attempts.saturating_sub(1);
+        self.move_forced_to_overflow();
 
         let make_indices_contiguous =
             |windows: &mut Vec<(usize, CosmicMappedInternal, Option<u32>, ShrinkablePadding)>| {
@@ -1356,6 +1357,7 @@ impl PanelSpace {
                 self.config.is_horizontal(),
                 clients.clone(),
                 section,
+                false,
             );
         }
         if overflow > 0 && !force_smaller {
@@ -1375,8 +1377,9 @@ impl PanelSpace {
         is_horizontal: bool,
         clients: OverflowClientPartition,
         section: OverflowSection,
+        force: bool,
     ) -> u32 {
-        if clients.movable.len() <= 1 {
+        if clients.movable.len() <= 1 && !force {
             tracing::info!("Needs at least 2 movable clients to move to overflow space.");
             return overflow;
         }
@@ -1563,12 +1566,55 @@ impl PanelSpace {
         overflow
     }
 
+    /// Windows of the clients in `clients` whose applet name is in `overflow_applets`.
+    fn forced_overflow_windows(&self, clients: &Mutex<Vec<PanelClient>>) -> Vec<(Window, u32)> {
+        self.space
+            .elements()
+            .filter_map(|e| match e {
+                CosmicMappedInternal::Window(w)
+                    if is_forced_overflow(&self.config.overflow_applets, &[clients], w) =>
+                {
+                    Some((w.clone(), 0))
+                },
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Moves applets listed in `overflow_applets` into their overflow popup,
+    /// even when the panel has room for them.
+    fn move_forced_to_overflow(&mut self) {
+        // In dock mode the left and right overflow buttons are hidden, so
+        // forced applets there would have no button to open them.
+        if self.config.overflow_applets.is_empty()
+            || self.output.is_none()
+            || !self.config.expand_to_edges()
+        {
+            return;
+        }
+        let forced = [
+            (OverflowSection::Left, self.forced_overflow_windows(&self.clients_left)),
+            (OverflowSection::Center, self.forced_overflow_windows(&self.clients_center)),
+            (OverflowSection::Right, self.forced_overflow_windows(&self.clients_right)),
+        ];
+        let is_horizontal = self.config.is_horizontal();
+        for (section, movable) in forced {
+            if movable.is_empty() {
+                continue;
+            }
+            let clients = OverflowClientPartition { movable, ..Default::default() };
+            // move_to_overflow adds one unit to the amount, so stay well below u32::MAX.
+            self.move_to_overflow(u32::MAX / 2, is_horizontal, clients, section, true);
+        }
+    }
+
     fn move_from_overflow(
         mut extra_space: u32,
         is_horizontal: bool,
         space: &mut Space<CosmicMappedInternal>,
         overflow_space: &mut Space<PopupMappedInternal>,
         suggested_size: u32,
+        is_forced: impl Fn(&Window) -> bool,
     ) -> u32 {
         let overflow_elements = overflow_space.elements().cloned().collect_vec();
         for w in overflow_elements {
@@ -1594,6 +1640,9 @@ impl PanelSpace {
                     PopupMappedInternal::Window(w) => w,
                     _ => continue,
                 };
+                if is_forced(&w) {
+                    continue;
+                }
                 extra_space = extra_space.saturating_sub(applet_len);
                 overflow_space.unmap_elem(&PopupMappedInternal::Window(w.clone()));
                 overflow_space.refresh();
@@ -1629,6 +1678,13 @@ impl PanelSpace {
                 &mut self.space,
                 &mut self.overflow_left,
                 suggested_size,
+                |w| {
+                    is_forced_overflow(
+                        &self.config.overflow_applets,
+                        &[&self.clients_left, &self.clients_center, &self.clients_right],
+                        w,
+                    )
+                },
             );
             if self.overflow_left.elements().all(|e| matches!(e, PopupMappedInternal::Popup(_)))
                 && let Some(overflow_button) = left_overflow_button.take()
@@ -1658,6 +1714,13 @@ impl PanelSpace {
                 &mut self.space,
                 &mut self.overflow_center,
                 suggested_size,
+                |w| {
+                    is_forced_overflow(
+                        &self.config.overflow_applets,
+                        &[&self.clients_left, &self.clients_center, &self.clients_right],
+                        w,
+                    )
+                },
             );
             if self.overflow_center.elements().all(|e| matches!(e, PopupMappedInternal::Popup(_)))
                 && let Some(overflow_button) = center_overflow_button.take()
@@ -1706,6 +1769,13 @@ impl PanelSpace {
             &mut self.space,
             &mut self.overflow_left,
             suggested_size,
+            |w| {
+                is_forced_overflow(
+                    &self.config.overflow_applets,
+                    &[&self.clients_left, &self.clients_center, &self.clients_right],
+                    w,
+                )
+            },
         );
         PanelSpace::move_from_overflow(
             u32::MAX,
@@ -1713,6 +1783,13 @@ impl PanelSpace {
             &mut self.space,
             &mut self.overflow_center,
             suggested_size,
+            |w| {
+                is_forced_overflow(
+                    &self.config.overflow_applets,
+                    &[&self.clients_left, &self.clients_center, &self.clients_right],
+                    w,
+                )
+            },
         );
         PanelSpace::move_from_overflow(
             u32::MAX,
@@ -1720,6 +1797,13 @@ impl PanelSpace {
             &mut self.space,
             &mut self.overflow_right,
             suggested_size,
+            |w| {
+                is_forced_overflow(
+                    &self.config.overflow_applets,
+                    &[&self.clients_left, &self.clients_center, &self.clients_right],
+                    w,
+                )
+            },
         );
     }
 
@@ -1730,6 +1814,7 @@ impl PanelSpace {
     ) {
         let right = self.clients_right.lock().unwrap();
         let mut clients = self.shrinkable_clients(right.iter());
+        drop(right);
 
         if clients.shrinkable_is_relaxed(self.config.is_horizontal(), self.scale) {
             let suggested_size = self.config.size.get_applet_icon_size(true)
@@ -1740,6 +1825,13 @@ impl PanelSpace {
                 &mut self.space,
                 &mut self.overflow_right,
                 suggested_size,
+                |w| {
+                    is_forced_overflow(
+                        &self.config.overflow_applets,
+                        &[&self.clients_left, &self.clients_center, &self.clients_right],
+                        w,
+                    )
+                },
             );
             if self.overflow_right.elements().all(|e| matches!(e, PopupMappedInternal::Popup(_)))
                 && let Some(overflow_button) = right_overflow_button.take()
@@ -1828,6 +1920,26 @@ impl PanelSpace {
             }
         }
     }
+}
+
+/// Whether `window` belongs to a client in `lists` whose applet name is in `overflow_applets`.
+fn is_forced_overflow(
+    overflow_applets: &[String],
+    lists: &[&Mutex<Vec<PanelClient>>],
+    window: &Window,
+) -> bool {
+    if overflow_applets.is_empty() {
+        return false;
+    }
+    let Some(window_client) = window.toplevel().and_then(|t| t.wl_surface().client()) else {
+        return false;
+    };
+    lists.iter().any(|list| {
+        list.lock().unwrap().iter().any(|c| {
+            overflow_applets.contains(&c.name)
+                && c.client.as_ref().is_some_and(|client| *client == window_client)
+        })
+    })
 }
 
 /// Weight priority so that bigger applets overflow last

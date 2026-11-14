@@ -176,6 +176,7 @@ impl Default for CosmicPanelContainerConfig {
                     autohover_delay_ms: Some(500),
                     padding_overlap: 0.5,
                     keep_style_on_maximize: false,
+                    overflow_applets: Vec::new(),
                 },
                 CosmicPanelConfig {
                     name: "Dock".to_string(),
@@ -210,6 +211,7 @@ impl Default for CosmicPanelContainerConfig {
                     autohover_delay_ms: Some(500),
                     padding_overlap: 0.5,
                     keep_style_on_maximize: false,
+                    overflow_applets: Vec::new(),
                 },
             ],
         }
