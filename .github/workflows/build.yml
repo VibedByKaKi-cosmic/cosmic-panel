@@ -1,0 +1,116 @@
+# Builds the Pop!_OS 24.04 (noble) amd64 .deb on every push and pull request.
+# Only pushes to master publish a GitHub Release and update the apt branch.
+# The CI scripts live in .ci/ on master, which is the branch this workflow runs from.
+name: Build
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+
+jobs:
+  build:
+    name: Build .deb (amd64)
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential debhelper devscripts equivs fakeroot
+          sudo mk-build-deps --install --remove --tool 'apt-get -y --no-install-recommends' debian/control
+
+      - name: Install Rust toolchain from rust-toolchain.toml
+        run: |
+          channel="$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$channel" --profile minimal --component clippy --component rustfmt
+          rustup default "$channel"
+          # Put rustup's cargo ahead of the cargo package installed as a build dependency.
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Set package version
+        run: .ci/set-version.sh
+
+      - name: Build Debian package
+        run: .ci/build-deb.sh
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: cosmic-panel-amd64
+          path: artifacts/*.deb
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: cosmic-panel-*
+          merge-multiple: true
+
+      - name: Set release metadata
+        run: .ci/set-version.sh
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG }}
+          name: ${{ env.TITLE }}
+          prerelease: true
+          generate_release_notes: true
+          files: artifacts/*.deb
+
+  apt:
+    name: Update APT repository
+    needs: release
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: cosmic-panel-*
+          merge-multiple: true
+
+      - name: Install APT repository tools
+        run: sudo apt-get update && sudo apt-get install -y reprepro gnupg
+
+      - name: Set package version
+        run: .ci/set-version.sh
+
+      - name: Update apt branch
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APT_REPO_GPG_PRIVATE_KEY: ${{ secrets.APT_REPO_GPG_PRIVATE_KEY }}
+        run: .ci/update-apt-repo.sh
