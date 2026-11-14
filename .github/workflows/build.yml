@@ -1,4 +1,4 @@
-# Builds the Pop!_OS 24.04 (noble) amd64 .deb on every push and pull request.
+# Builds the Pop!_OS 24.04 (noble) amd64 .deb on every push.
 # Only pushes to master publish a GitHub Release and update the apt branch.
 # The CI scripts live in .ci/ on master, which is the branch this workflow runs from.
 name: Build
@@ -6,7 +6,6 @@ name: Build
 on:
   push:
     branches: ['**']
-  pull_request:
 
 permissions:
   contents: write
