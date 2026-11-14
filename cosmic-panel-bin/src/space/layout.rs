@@ -20,7 +20,7 @@ use super::panel_space::{ClientShrinkSize, PanelClient};
 use crate::xdg_shell_wrapper::space::WrapperSpace;
 use anyhow::bail;
 use cosmic::widget::Id;
-use cosmic_panel_config::PanelAnchor;
+use cosmic_panel_config::{CosmicPanelConfig, PanelAnchor};
 use itertools::{Itertools, chain};
 use sctk::shell::WaylandSurface;
 use smithay::desktop::space::SpaceElement;
@@ -1218,7 +1218,7 @@ impl PanelSpace {
                     shrink_size: shrink_min_size,
                     padding_overlap: 0.0,
                 });
-            } else if c.shrink_priority.is_some() {
+            } else if c.shrink_priority.is_some() && !self.config.pinned_applets.contains(&c.name) {
                 let p = weighted_priority(&w);
                 overflow_partition.movable.push((w.0, p));
             } else {
@@ -1566,13 +1566,13 @@ impl PanelSpace {
         overflow
     }
 
-    /// Windows of the clients in `clients` whose applet name is in `overflow_applets`.
+    /// Windows of the clients in `clients` that the overflow options send to overflow.
     fn forced_overflow_windows(&self, clients: &Mutex<Vec<PanelClient>>) -> Vec<(Window, u32)> {
         self.space
             .elements()
             .filter_map(|e| match e {
                 CosmicMappedInternal::Window(w)
-                    if is_forced_overflow(&self.config.overflow_applets, &[clients], w) =>
+                    if is_forced_overflow(&self.config, &[clients], w) =>
                 {
                     Some((w.clone(), 0))
                 },
@@ -1581,24 +1581,29 @@ impl PanelSpace {
             .collect()
     }
 
-    /// Moves applets listed in `overflow_applets` into their overflow popup,
-    /// even when the panel has room for them.
+    /// Moves applets selected by `overflow_applets` or `always_overflow` into their
+    /// overflow popup, even when the panel has room for them.
     fn move_forced_to_overflow(&mut self) {
-        // In dock mode the left and right overflow buttons are hidden, so
-        // forced applets there would have no button to open them.
-        if self.config.overflow_applets.is_empty()
+        if (self.config.overflow_applets.is_empty() && !self.config.always_overflow)
             || self.output.is_none()
-            || !self.config.expand_to_edges()
         {
             return;
         }
-        let forced = [
-            (OverflowSection::Left, self.forced_overflow_windows(&self.clients_left)),
-            (OverflowSection::Center, self.forced_overflow_windows(&self.clients_center)),
-            (OverflowSection::Right, self.forced_overflow_windows(&self.clients_right)),
-        ];
+        let mut left = self.forced_overflow_windows(&self.clients_left);
+        let mut center = self.forced_overflow_windows(&self.clients_center);
+        let mut right = self.forced_overflow_windows(&self.clients_right);
+        if !self.config.expand_to_edges() {
+            // Dock mode hides the left and right overflow buttons, so their
+            // applets move to the center overflow, which stays visible.
+            center.append(&mut left);
+            center.append(&mut right);
+        }
         let is_horizontal = self.config.is_horizontal();
-        for (section, movable) in forced {
+        for (section, movable) in [
+            (OverflowSection::Left, left),
+            (OverflowSection::Center, center),
+            (OverflowSection::Right, right),
+        ] {
             if movable.is_empty() {
                 continue;
             }
@@ -1680,7 +1685,7 @@ impl PanelSpace {
                 suggested_size,
                 |w| {
                     is_forced_overflow(
-                        &self.config.overflow_applets,
+                        &self.config,
                         &[&self.clients_left, &self.clients_center, &self.clients_right],
                         w,
                     )
@@ -1716,7 +1721,7 @@ impl PanelSpace {
                 suggested_size,
                 |w| {
                     is_forced_overflow(
-                        &self.config.overflow_applets,
+                        &self.config,
                         &[&self.clients_left, &self.clients_center, &self.clients_right],
                         w,
                     )
@@ -1771,7 +1776,7 @@ impl PanelSpace {
             suggested_size,
             |w| {
                 is_forced_overflow(
-                    &self.config.overflow_applets,
+                    &self.config,
                     &[&self.clients_left, &self.clients_center, &self.clients_right],
                     w,
                 )
@@ -1785,7 +1790,7 @@ impl PanelSpace {
             suggested_size,
             |w| {
                 is_forced_overflow(
-                    &self.config.overflow_applets,
+                    &self.config,
                     &[&self.clients_left, &self.clients_center, &self.clients_right],
                     w,
                 )
@@ -1799,7 +1804,7 @@ impl PanelSpace {
             suggested_size,
             |w| {
                 is_forced_overflow(
-                    &self.config.overflow_applets,
+                    &self.config,
                     &[&self.clients_left, &self.clients_center, &self.clients_right],
                     w,
                 )
@@ -1827,7 +1832,7 @@ impl PanelSpace {
                 suggested_size,
                 |w| {
                     is_forced_overflow(
-                        &self.config.overflow_applets,
+                        &self.config,
                         &[&self.clients_left, &self.clients_center, &self.clients_right],
                         w,
                     )
@@ -1922,13 +1927,15 @@ impl PanelSpace {
     }
 }
 
-/// Whether `window` belongs to a client in `lists` whose applet name is in `overflow_applets`.
+/// Whether `window` belongs to a client in `lists` that the config always sends
+/// to overflow. Pinned applets never count, even when they are also listed in
+/// `overflow_applets`.
 fn is_forced_overflow(
-    overflow_applets: &[String],
+    config: &CosmicPanelConfig,
     lists: &[&Mutex<Vec<PanelClient>>],
     window: &Window,
 ) -> bool {
-    if overflow_applets.is_empty() {
+    if config.overflow_applets.is_empty() && !config.always_overflow {
         return false;
     }
     let Some(window_client) = window.toplevel().and_then(|t| t.wl_surface().client()) else {
@@ -1936,8 +1943,9 @@ fn is_forced_overflow(
     };
     lists.iter().any(|list| {
         list.lock().unwrap().iter().any(|c| {
-            overflow_applets.contains(&c.name)
-                && c.client.as_ref().is_some_and(|client| *client == window_client)
+            c.client.as_ref().is_some_and(|client| *client == window_client)
+                && !config.pinned_applets.contains(&c.name)
+                && (config.always_overflow || config.overflow_applets.contains(&c.name))
         })
     })
 }
