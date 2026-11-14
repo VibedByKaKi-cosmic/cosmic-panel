@@ -1,0 +1,4 @@
+Component: main
+Label: Cosmic Panel APT Repository
+Architecture: amd64
+Description: Cosmic Panel packages built from VibedByKaKi-cosmic/cosmic-panel

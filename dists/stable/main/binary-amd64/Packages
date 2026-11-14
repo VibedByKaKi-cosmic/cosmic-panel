@@ -1,0 +1,16 @@
+Package: cosmic-panel
+Version: 1.11.0+gite48630f
+Architecture: amd64
+Maintainer: System76 <info@system76.com>
+Installed-Size: 18052
+Depends: libc6 (>= 2.39), libgcc-s1 (>= 4.2), libxkbcommon0 (>= 0.5.0)
+Homepage: https://github.com/pop-os/cosmic-panel
+Priority: optional
+Section: admin
+Filename: pool/main/c/cosmic-panel/cosmic-panel_1.11.0+gite48630f_amd64.deb
+Size: 5543704
+SHA256: 2911ecdac243b5f79f6982ff2df934be1fce71adfa23600fa75498aeacdf47b9
+SHA1: 41a0ca678af8455dbd29a6e80d47b2dd26953d57
+MD5sum: c0fe46c9c40771b6b104ae53e3de01da
+Description: XDG Shell Wrapper Panel for COSMIC
+

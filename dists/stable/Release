@@ -1,0 +1,18 @@
+Label: Cosmic Panel APT Repository
+Codename: stable
+Date: Sat, 14 Nov 2026 22:59:03 UTC
+Architectures: amd64
+Components: main
+Description: Cosmic Panel packages built from VibedByKaKi-cosmic/cosmic-panel
+MD5Sum:
+ 51c686738c50c9047e68ef9446769a33 586 main/binary-amd64/Packages
+ 951427317279b47ff47fd13081906994 422 main/binary-amd64/Packages.gz
+ ab1865f0d099dc731abff039e083c4e3 149 main/binary-amd64/Release
+SHA1:
+ 6cb3b0512d431ddaadf5fa259f33037735ca1865 586 main/binary-amd64/Packages
+ a902f8c7c28ac0f01884fdd6223711c5b5e0a330 422 main/binary-amd64/Packages.gz
+ c1410cccf5be967f4e9d68880216ac227907338a 149 main/binary-amd64/Release
+SHA256:
+ 1bbb9bfe3c3de3f0fea3ed335387c06ffb501bd755c13bf1d37b5e29ecb75fb3 586 main/binary-amd64/Packages
+ 9dcea05e434d0170a8bfb330c4b59b4e197998ac5357d8cd28af297bcb3168f5 422 main/binary-amd64/Packages.gz
+ a426311e38cbcf8c44b206937919b1bb75288030b776da957988073a99619ae8 149 main/binary-amd64/Release
